@@ -202,7 +202,7 @@ impl TryFrom<u8> for CodecType {
 ///
 /// # Examples
 /// ```
-/// use rustpbx::media::codecs::{parse_rtpmap, CodecType};
+/// use voice_engine::media::codecs::{parse_rtpmap, CodecType};
 ///
 /// let (pt, codec, rate, channels) = parse_rtpmap("96 opus/48000/2").unwrap();
 /// assert_eq!(pt, 96);
