@@ -403,6 +403,7 @@ async fn process_audio_reader(
 
 pub struct FileTrack {
     track_id: TrackId,
+    play_id: Option<String>,
     config: TrackConfig,
     cancel_token: CancellationToken,
     processor_chain: ProcessorChain,
@@ -416,6 +417,7 @@ impl FileTrack {
         let config = TrackConfig::default();
         Self {
             track_id: id,
+            play_id: None,
             processor_chain: ProcessorChain::new(config.samplerate),
             config,
             cancel_token: CancellationToken::new(),
@@ -424,6 +426,12 @@ impl FileTrack {
             ssrc: 0,
         }
     }
+
+    pub fn with_play_id(mut self, play_id: Option<String>) -> Self {
+        self.play_id = play_id;
+        self
+    }
+
     pub fn with_ssrc(mut self, ssrc: u32) -> Self {
         self.ssrc = ssrc;
         self
@@ -499,6 +507,7 @@ impl Track for FileTrack {
         let start_time = crate::media::get_timestamp();
         let ssrc = self.ssrc;
         // Spawn async task to handle file streaming
+        let play_id = self.play_id.clone();
         tokio::spawn(async move {
             // Determine file extension
             let extension = if path.starts_with("http://") || path.starts_with("https://") {
@@ -538,7 +547,7 @@ impl Track for FileTrack {
                             timestamp: crate::media::get_timestamp(),
                             duration: crate::media::get_timestamp() - start_time,
                             ssrc,
-                            play_id: Some(path),
+                            play_id: play_id.clone(),
                         })
                         .ok();
                     return Err(e);
@@ -579,7 +588,7 @@ impl Track for FileTrack {
                     timestamp: crate::media::get_timestamp(),
                     duration: crate::media::get_timestamp() - start_time,
                     ssrc,
-                    play_id: Some(path),
+                    play_id,
                 })
                 .ok();
             Ok::<(), anyhow::Error>(())
@@ -625,7 +634,7 @@ async fn download_from_url(url: &str, use_cache: bool) -> Result<File> {
         "filetrack: Downloaded {} bytes in {:?} for {}",
         data.len(),
         duration,
-        url
+        url,
     );
 
     // Store in cache if enabled
