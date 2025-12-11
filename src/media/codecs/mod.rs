@@ -184,9 +184,9 @@ impl TryFrom<u8> for CodecType {
             9 => Ok(CodecType::G722),
             #[cfg(feature = "g729")]
             18 => Ok(CodecType::G729), // Static payload type
-            #[cfg(feature = "opus")]
             // Dynamic payload type shoulw get from the rtpmap in sdp offer, leave this for backward compatibility
             101 => Ok(CodecType::TelephoneEvent),
+            #[cfg(feature = "opus")]
             111 => Ok(CodecType::Opus), // Dynamic payload type
             _ => Err(anyhow::anyhow!("Invalid codec type: {}", value)),
         }
