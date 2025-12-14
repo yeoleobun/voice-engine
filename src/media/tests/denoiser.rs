@@ -26,3 +26,39 @@ fn test_basic_processing() {
     }
     println!("ffplay -f s16le -ar 16000 fixtures/noise_gating_zh_16k_denoised.pcm.decoded");
 }
+
+#[test]
+fn test_denoiser_performance() {
+    use std::time::Instant;
+    let sample_rate = 16000;
+    let frame_size = 320; // 20ms at 16kHz
+    let reducer = NoiseReducer::new(sample_rate).expect("Failed to create reducer");
+
+    // Create a dummy frame with noise
+    let mut samples = Vec::with_capacity(frame_size);
+    for i in 0..frame_size {
+        samples.push((i % 100) as i16);
+    }
+
+    let iterations = 5000;
+    let start = Instant::now();
+
+    for _ in 0..iterations {
+        let mut frame = AudioFrame {
+            samples: Samples::PCM {
+                samples: samples.clone(),
+            },
+            sample_rate: sample_rate as u32,
+            track_id: "test".to_string(),
+            timestamp: 0,
+        };
+        reducer.process_frame(&mut frame).unwrap();
+    }
+
+    let duration = start.elapsed();
+    let avg_time = duration / iterations as u32;
+
+    println!("Total time for {} iterations: {:?}", iterations, duration);
+    println!("Average time per frame: {:?}", avg_time);
+    println!("FPS: {:.2}", 1.0 / avg_time.as_secs_f64());
+}

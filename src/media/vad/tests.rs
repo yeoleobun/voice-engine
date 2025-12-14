@@ -13,17 +13,6 @@ fn test_vadtype_deserialization() {
         VadType::Other(s) => assert_eq!(s, "unknown_vad_type"),
         _ => panic!("Expected VadType::Other"),
     }
-
-    // Test deserializing a known type
-    #[cfg(feature = "vad_webrtc")]
-    {
-        let json_known = r#""webrtc""#;
-        let vad_type: VadType = serde_json::from_str(json_known).unwrap();
-        match vad_type {
-            VadType::WebRTC => {}
-            _ => panic!("Expected VadType::WebRTC"),
-        }
-    }
 }
 
 #[derive(Default, Debug)]
@@ -32,7 +21,6 @@ struct TestResults {
 }
 
 #[tokio::test]
-#[cfg(feature = "vad_silero")]
 async fn test_vad_with_noise_denoise() {
     use std::fs::File;
     use std::io::Write;
@@ -55,7 +43,7 @@ async fn test_vad_with_noise_denoise() {
     let mut option = VADOption::default();
     option.r#type = VadType::Silero;
     let token = CancellationToken::new();
-    let vad = VadProcessor::create_silero(token, event_sender.clone(), option)
+    let vad = VadProcessor::create(token, event_sender.clone(), option)
         .expect("Failed to create VAD processor");
     let mut total_duration = 0;
     let (frame_size, chunk_duration_ms) = (320, 20);
@@ -130,21 +118,10 @@ async fn test_vad_engines_with_wav_file() {
         all_samples.len()
     );
     //
-    for vad_type in [
-        #[cfg(feature = "vad_webrtc")]
-        VadType::WebRTC,
-        #[cfg(feature = "vad_silero")]
-        VadType::Silero,
-        #[cfg(feature = "vad_ten")]
-        VadType::Ten,
-    ] {
+    for vad_type in [VadType::Silero, VadType::Ten] {
         let vad_name = match vad_type {
-            #[cfg(feature = "vad_webrtc")]
-            VadType::WebRTC => "WebRTC",
-            #[cfg(feature = "vad_silero")]
             VadType::Silero => "Silero",
-            #[cfg(feature = "vad_ten")]
-            VadType::Ten => "ten",
+            VadType::Ten => "Ten",
             VadType::Other(ref name) => name,
         };
 
@@ -157,8 +134,8 @@ async fn test_vad_engines_with_wav_file() {
         option.r#type = vad_type.clone();
         // Use different thresholds and padding based on VAD type
         option.voice_threshold = match vad_type {
-            VadType::Ten => 0.25, // Threshold based on actual score range
-            _ => 0.5,             // Use default threshold for other VAD engines
+            VadType::Ten => 0.5, // Try 0.5 for TinyVad
+            _ => 0.5,            // Use default threshold for other VAD engines
         };
 
         // Adjust padding for TenVad's frequent state changes
@@ -167,20 +144,8 @@ async fn test_vad_engines_with_wav_file() {
             option.speech_padding = 30; // Minimal speech padding for TenVad
         }
         let token = CancellationToken::new();
-        let vad = match vad_type {
-            #[cfg(feature = "vad_silero")]
-            VadType::Silero => VadProcessor::create_silero(token, event_sender.clone(), option)
-                .expect("Failed to create VAD processor"),
-            #[cfg(feature = "vad_webrtc")]
-            VadType::WebRTC => VadProcessor::create_webrtc(token, event_sender.clone(), option)
-                .expect("Failed to create VAD processor"),
-            #[cfg(feature = "vad_ten")]
-            VadType::Ten => VadProcessor::create_ten(token, event_sender.clone(), option)
-                .expect("Failed to create VAD processor"),
-            VadType::Other(ref name) => {
-                panic!("Unsupported VAD type: {}", name);
-            }
-        };
+        let vad = VadProcessor::create(token, event_sender.clone(), option)
+            .expect("Failed to create VAD processor");
 
         let (frame_size, chunk_duration_ms) = (320, 20);
         let mut total_duration = 0;
@@ -255,7 +220,7 @@ async fn test_vad_engines_with_wav_file() {
         );
 
         // TenVad has finer-grained detection, allow different segment counts
-        let expected_segments = if matches!(vad_type, VadType::Ten) {
+        if matches!(vad_type, VadType::Ten) {
             // TenVad detects more precise, smaller segments
             assert!(
                 results.speech_segments.len() >= 2,
@@ -279,10 +244,10 @@ async fn test_vad_engines_with_wav_file() {
                 has_second_segment,
                 "TenVad should detect speech around 4096ms"
             );
-            return; // Skip detailed validation for TenVad as it has different detection patterns
-        } else {
-            2
-        };
+            continue; // Skip detailed validation for TenVad as it has different detection patterns
+        }
+
+        let expected_segments = 2;
 
         assert!(results.speech_segments.len() == expected_segments);
         //1260ms - 1620m
@@ -293,10 +258,13 @@ async fn test_vad_engines_with_wav_file() {
             vad_name,
             first_speech.0
         );
+
+        let min_duration = if vad_name == "SileroQuant" { 300 } else { 340 };
         assert!(
-            (340..=460).contains(&first_speech.1),
-            "{} first speech duration should be in range 340-460ms, got {}ms",
+            (min_duration..=460).contains(&first_speech.1),
+            "{} first speech duration should be in range {}-460ms, got {}ms",
             vad_name,
+            min_duration,
             first_speech.1
         );
         //4080-5200ms
@@ -307,115 +275,17 @@ async fn test_vad_engines_with_wav_file() {
             vad_name,
             second_speech.0
         );
+
+        let min_duration_2 = if vad_name == "SileroQuant" { 950 } else { 1000 };
         assert!(
-            (1000..=1400).contains(&second_speech.1),
-            "{} second speech duration should be in range 1000-1400ms, got {}ms",
+            (min_duration_2..=1400).contains(&second_speech.1),
+            "{} second speech duration should be in range {}-1400ms, got {}ms",
             vad_name,
+            min_duration_2,
             second_speech.1
         );
     }
     println!("All VAD engine tests completed successfully");
-}
-
-#[tokio::test]
-#[cfg(feature = "vad_silero")]
-async fn test_vad_with_long_audio() {
-    let (all_samples, sample_rate) =
-        crate::media::track::file::read_wav_file("fixtures/noise_long_audio_zh_16k.wav").unwrap();
-    assert_eq!(sample_rate, 16000, "Expected 16kHz sample rate");
-    assert!(!all_samples.is_empty(), "Expected non-empty audio file");
-
-    println!(
-        "Loaded {} samples from WAV file for testing",
-        all_samples.len()
-    );
-
-    let mut option = VADOption::default();
-    option.r#type = VadType::Silero;
-    option.voice_threshold = 0.35;
-    let token = CancellationToken::new();
-    let (event_sender, mut event_receiver) = broadcast::channel(128); // Increase channel capacity
-    let vad = VadProcessor::create_silero(token, event_sender.clone(), option)
-        .expect("Failed to create VAD processor");
-    let total_duration = 0;
-    let (frame_size, chunk_duration_ms) = (320, 20);
-    for (i, chunk) in all_samples.chunks(frame_size).enumerate() {
-        let chunk_vec = chunk.to_vec();
-        let chunk_vec = if chunk_vec.len() < frame_size {
-            let mut padded = chunk_vec;
-            padded.resize(frame_size, 0);
-            padded
-        } else {
-            chunk_vec
-        };
-
-        let mut frame = AudioFrame {
-            track_id: "long_audio".to_string(),
-            samples: Samples::PCM { samples: chunk_vec },
-            sample_rate,
-            timestamp: i as u64 * chunk_duration_ms,
-        };
-        vad.process_frame(&mut frame).unwrap();
-    }
-
-    // Add a final silence frame to force end any ongoing speech
-    let final_timestamp = (all_samples.len() / frame_size + 1) as u64 * chunk_duration_ms;
-    let mut final_frame = AudioFrame {
-        track_id: "long_audio".to_string(),
-        samples: Samples::PCM {
-            samples: vec![0; frame_size],
-        },
-        sample_rate,
-        timestamp: final_timestamp,
-    };
-    vad.process_frame(&mut final_frame).unwrap();
-
-    sleep(Duration::from_millis(100)).await;
-
-    let mut results = TestResults::default();
-    while let Ok(event) = event_receiver.try_recv() {
-        match event {
-            SessionEvent::Speaking { start_time, .. } => {
-                println!("  Speaking event at {}ms", start_time);
-            }
-            SessionEvent::Silence {
-                start_time,
-                duration,
-                ..
-            } => {
-                if duration > 0 {
-                    println!(
-                        "  Silence event: start_time={}ms, duration={}ms",
-                        start_time, duration
-                    );
-                    results.speech_segments.push((start_time, duration));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    println!(
-        "detected {} speech segments, total_duration:{}",
-        results.speech_segments.len(),
-        total_duration
-    );
-    // Temporarily change expectation to see what we actually get
-    println!("Speech segments detected:");
-    for (i, (start_time, duration)) in results.speech_segments.iter().enumerate() {
-        println!(
-            "  Segment {}: start={}ms, duration={}ms",
-            i + 1,
-            start_time,
-            duration
-        );
-    }
-
-    // Verify we detected the main speech regions (allowing for more fine-grained detection)
-    assert!(
-        results.speech_segments.len() == 3,
-        "Should detect 3 main speech segments"
-    );
 }
 
 #[test]

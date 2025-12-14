@@ -75,12 +75,8 @@ pub struct StreamEngine {
 impl Default for StreamEngine {
     fn default() -> Self {
         let mut engine = Self::new();
-        #[cfg(feature = "vad_silero")]
-        engine.register_vad(VadType::Silero, VadProcessor::create_silero);
-        #[cfg(feature = "vad_webrtc")]
-        engine.register_vad(VadType::WebRTC, VadProcessor::create_webrtc);
-        #[cfg(feature = "vad_ten")]
-        engine.register_vad(VadType::Ten, VadProcessor::create_ten);
+        engine.register_vad(VadType::Silero, VadProcessor::create);
+        engine.register_vad(VadType::Ten, VadProcessor::create);
         engine.register_vad(VadType::Other("nop".to_string()), VadProcessor::create_nop);
 
         engine.register_asr(

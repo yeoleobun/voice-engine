@@ -7,15 +7,15 @@ use serde_with::skip_serializing_none;
 use std::any::Any;
 use std::cell::RefCell;
 use tokio_util::sync::CancellationToken;
-#[cfg(feature = "vad_silero")]
-mod silero;
-#[cfg(feature = "vad_ten")]
-mod ten;
+
+pub(crate) mod tiny_silero;
+pub(crate) mod tiny_ten;
+pub(crate) mod utils;
 
 #[cfg(test)]
+mod benchmark_all;
+#[cfg(test)]
 mod tests;
-#[cfg(feature = "vad_webrtc")]
-mod webrtc;
 
 #[skip_serializing_none]
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -41,26 +41,7 @@ pub struct VADOption {
 impl Default for VADOption {
     fn default() -> Self {
         Self {
-            #[cfg(feature = "vad_webrtc")]
-            r#type: VadType::WebRTC,
-            #[cfg(all(
-                not(feature = "vad_webrtc"),
-                not(feature = "vad_ten"),
-                feature = "vad_silero"
-            ))]
             r#type: VadType::Silero,
-            #[cfg(all(
-                not(feature = "vad_webrtc"),
-                not(feature = "vad_silero"),
-                feature = "vad_ten"
-            ))]
-            r#type: VadType::Ten,
-            #[cfg(all(
-                not(feature = "vad_webrtc"),
-                not(feature = "vad_silero"),
-                not(feature = "vad_ten"),
-            ))]
-            r#type: VadType::Other("nop".to_string()),
             samplerate: 16000,
             // Python defaults: min_speech_duration_ms=250, min_silence_duration_ms=100, speech_pad_ms=30
             speech_padding: 250,  // min_speech_duration_ms
@@ -79,11 +60,7 @@ impl Default for VADOption {
 #[derive(Clone, Debug, Serialize, Eq, Hash, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum VadType {
-    #[cfg(feature = "vad_webrtc")]
-    WebRTC,
-    #[cfg(feature = "vad_silero")]
     Silero,
-    #[cfg(feature = "vad_ten")]
     Ten,
     Other(String),
 }
@@ -95,11 +72,7 @@ impl<'de> Deserialize<'de> for VadType {
     {
         let value = String::deserialize(deserializer)?;
         match value.as_str() {
-            #[cfg(feature = "vad_webrtc")]
-            "webrtc" => Ok(VadType::WebRTC),
-            #[cfg(feature = "vad_silero")]
             "silero" => Ok(VadType::Silero),
-            #[cfg(feature = "vad_ten")]
             "ten" => Ok(VadType::Ten),
             _ => Ok(VadType::Other(value)),
         }
@@ -109,11 +82,7 @@ impl<'de> Deserialize<'de> for VadType {
 impl std::fmt::Display for VadType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            #[cfg(feature = "vad_webrtc")]
-            VadType::WebRTC => write!(f, "webrtc"),
-            #[cfg(feature = "vad_silero")]
             VadType::Silero => write!(f, "silero"),
-            #[cfg(feature = "vad_ten")]
             VadType::Ten => write!(f, "ten"),
             VadType::Other(provider) => write!(f, "{}", provider),
         }
@@ -125,11 +94,7 @@ impl TryFrom<&String> for VadType {
 
     fn try_from(value: &String) -> std::result::Result<Self, Self::Error> {
         match value.as_str() {
-            #[cfg(feature = "vad_webrtc")]
-            "webrtc" => Ok(VadType::WebRTC),
-            #[cfg(feature = "vad_silero")]
             "silero" => Ok(VadType::Silero),
-            #[cfg(feature = "vad_ten")]
             "ten" => Ok(VadType::Ten),
             other => Ok(VadType::Other(other.to_string())),
         }
@@ -272,38 +237,14 @@ impl VadProcessorInner {
 }
 
 impl VadProcessor {
-    #[cfg(feature = "vad_webrtc")]
-    pub fn create_webrtc(
+    pub fn create(
         _token: CancellationToken,
         event_sender: EventSender,
         option: VADOption,
     ) -> Result<Box<dyn Processor>> {
         let vad: Box<dyn VadEngine> = match option.r#type {
-            VadType::WebRTC => Box::new(webrtc::WebRtcVad::new(option.samplerate)?),
-            _ => Box::new(NopVad::new()?),
-        };
-        Ok(Box::new(VadProcessor::new(vad, event_sender, option)?))
-    }
-    #[cfg(feature = "vad_silero")]
-    pub fn create_silero(
-        _token: CancellationToken,
-        event_sender: EventSender,
-        option: VADOption,
-    ) -> Result<Box<dyn Processor>> {
-        let vad: Box<dyn VadEngine> = match option.r#type {
-            VadType::Silero => Box::new(silero::SileroVad::new(option.clone())?),
-            _ => Box::new(NopVad::new()?),
-        };
-        Ok(Box::new(VadProcessor::new(vad, event_sender, option)?))
-    }
-    #[cfg(feature = "vad_ten")]
-    pub fn create_ten(
-        _token: CancellationToken,
-        event_sender: EventSender,
-        option: VADOption,
-    ) -> Result<Box<dyn Processor>> {
-        let vad: Box<dyn VadEngine> = match option.r#type {
-            VadType::Ten => Box::new(ten::TenVad::new(option.clone())?),
+            VadType::Silero => Box::new(tiny_silero::TinySilero::new(option.clone())?),
+            VadType::Ten => Box::new(tiny_ten::TinyVad::new(option.clone())?),
             _ => Box::new(NopVad::new()?),
         };
         Ok(Box::new(VadProcessor::new(vad, event_sender, option)?))
