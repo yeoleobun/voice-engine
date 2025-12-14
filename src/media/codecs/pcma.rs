@@ -3,7 +3,66 @@ use crate::media::{PcmBuf, Sample};
 
 const SEG_SHIFT: i16 = 4;
 const QUANT_MASK: i16 = 0x0F;
-static SEG_END: [i16; 8] = [0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF, 0x3FFF, 0x7FFF];
+const SEG_END: [i16; 8] = [0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF, 0x3FFF, 0x7FFF];
+
+const fn search(val: i16, table: &[i16], size: usize) -> usize {
+    let mut i = 0;
+    while i < size {
+        if val <= table[i] {
+            return i;
+        }
+        i += 1;
+    }
+    size
+}
+
+const fn linear2alaw_algo(pcm_val: i16) -> u8 {
+    // Special case handling for small negative values [-8, -1]
+    if pcm_val < 0 && pcm_val >= -8 {
+        return 0xD5;
+    }
+
+    // Determine sign mask and prepare the positive sample value
+    let (mask, abs_val) = if pcm_val >= 0 {
+        (0xD5, pcm_val) // sign bit = 1
+    } else {
+        // Handle the edge case of -32768 (i16::MIN), which would overflow when negated
+        if pcm_val == i16::MIN {
+            (0x55, i16::MAX) // Use the maximum positive value
+        } else {
+            (0x55, -pcm_val - 8) // sign bit = 0
+        }
+    };
+
+    // Convert the scaled magnitude to segment number
+    let seg = search(abs_val, &SEG_END, 8);
+
+    // If out of range, return maximum value
+    if seg >= 8 {
+        return (0x7F ^ mask) as u8;
+    }
+
+    // Calculate the base value from segment
+    let aval = (seg as i16) << SEG_SHIFT;
+
+    // Combine the segment value with the quantization bits
+    let shift = if seg < 2 { 4 } else { seg as i16 + 3 };
+    let result = aval | ((abs_val >> shift) & QUANT_MASK);
+
+    // Apply the mask to set the sign bit
+    (result ^ mask) as u8
+}
+
+static ALAW_ENCODE_TABLE: [u8; 65536] = {
+    let mut table = [0; 65536];
+    let mut i = 0;
+    while i < 65536 {
+        let s = (i as i32 - 32768) as i16;
+        table[i] = linear2alaw_algo(s);
+        i += 1;
+    }
+    table
+};
 
 // A-law decode table (same as Go's alaw2lpcm)
 static ALAW_DECODE_TABLE: [i16; 256] = [
@@ -67,52 +126,10 @@ impl PcmaEncoder {
         Self {}
     }
 
-    /// Finds the segment in which a value falls within a table
-    fn search(&self, val: i16, table: &[i16], size: usize) -> usize {
-        for i in 0..size {
-            if val <= table[i] {
-                return i;
-            }
-        }
-        size
-    }
-
-    /// Converts a linear 16-bit PCM sample to an A-law encoded byte
-    fn linear2alaw(&self, pcm_val: i16) -> u8 {
-        // Special case handling for small negative values [-8, -1]
-        if pcm_val < 0 && pcm_val >= -8 {
-            return 0xD5;
-        }
-
-        // Determine sign mask and prepare the positive sample value
-        let (mask, abs_val) = if pcm_val >= 0 {
-            (0xD5, pcm_val) // sign bit = 1
-        } else {
-            // Handle the edge case of -32768 (i16::MIN), which would overflow when negated
-            if pcm_val == i16::MIN {
-                (0x55, i16::MAX) // Use the maximum positive value
-            } else {
-                (0x55, -pcm_val - 8) // sign bit = 0
-            }
-        };
-
-        // Convert the scaled magnitude to segment number
-        let seg = self.search(abs_val, &SEG_END, 8);
-
-        // If out of range, return maximum value
-        if seg >= 8 {
-            return (0x7F ^ mask) as u8;
-        }
-
-        // Calculate the base value from segment
-        let aval = (seg as i16) << SEG_SHIFT;
-
-        // Combine the segment value with the quantization bits
-        let shift = if seg < 2 { 4 } else { seg as i16 + 3 };
-        let result = aval | ((abs_val >> shift) & QUANT_MASK);
-
-        // Apply the mask to set the sign bit
-        (result ^ mask) as u8
+    /// Converts a linear 16-bit PCM sample to an A-law encoded byte using lookup table
+    fn linear2alaw(&self, sample: i16) -> u8 {
+        let index = (sample as i32 + 32768) as usize;
+        ALAW_ENCODE_TABLE[index]
     }
 }
 

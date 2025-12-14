@@ -4,6 +4,54 @@ use crate::media::{PcmBuf, Sample};
 const BIAS: i16 = 0x84;
 const CLIP: i16 = 32635;
 
+const fn linear2ulaw_algo(mut sample: i16) -> u8 {
+    // Clip the sample to prevent overflow
+    if sample > CLIP {
+        sample = CLIP;
+    } else if sample < -CLIP {
+        sample = -CLIP;
+    }
+
+    // Get the sample's sign and make it positive
+    let sign: i16 = if sample < 0 { 0x80 } else { 0x00 };
+    if sign == 0x80 {
+        sample = -sample;
+    }
+
+    // Add bias
+    sample += BIAS;
+
+    // Compute segment number and step size
+    let mut segment: i16 = 0;
+    let mut value = sample;
+    while value >= 256 {
+        segment += 1;
+        value >>= 1;
+    }
+
+    // Combine sign, segment, and quantization
+    let uval = if segment >= 8 {
+        0x7F ^ sign
+    } else {
+        let shift = if segment == 0 { 7 } else { segment + 3 };
+        let mask = 0xFF ^ (0xFF >> shift);
+        (sign | (segment << 4) | ((sample >> (segment + 3)) & 0x0F)) ^ mask
+    };
+
+    uval as u8
+}
+
+static MULAW_ENCODE_TABLE: [u8; 65536] = {
+    let mut table = [0; 65536];
+    let mut i = 0;
+    while i < 65536 {
+        let s = (i as i32 - 32768) as i16;
+        table[i] = linear2ulaw_algo(s);
+        i += 1;
+    }
+    table
+};
+
 static MULAW_DECODE_TABLE: [i16; 256] = [
     -32124, -31100, -30076, -29052, -28028, -27004, -25980, -24956, -23932, -22908, -21884, -20860,
     -19836, -18812, -17788, -16764, -15996, -15484, -14972, -14460, -13948, -13436, -12924, -12412,
@@ -64,44 +112,10 @@ impl PcmuEncoder {
         Self {}
     }
 
-    /// Converts a linear 16-bit PCM sample to a μ-law encoded byte
+    /// Converts a linear 16-bit PCM sample to a μ-law encoded byte using lookup table
     fn linear2ulaw(&self, sample: i16) -> u8 {
-        // Clip the sample to prevent overflow
-        let mut sample = if sample > CLIP {
-            CLIP
-        } else if sample < -CLIP {
-            -CLIP
-        } else {
-            sample
-        };
-
-        // Get the sample's sign and make it positive
-        let sign = if sample < 0 { 0x80 } else { 0x00 };
-        if sign == 0x80 {
-            sample = -sample;
-        }
-
-        // Add bias
-        sample += BIAS;
-
-        // Compute segment number and step size
-        let mut segment = 0;
-        let mut value = sample;
-        while value >= 256 {
-            segment += 1;
-            value >>= 1;
-        }
-
-        // Combine sign, segment, and quantization
-        let uval = if segment >= 8 {
-            0x7F ^ sign
-        } else {
-            let shift = if segment == 0 { 7 } else { segment + 3 };
-            let mask = 0xFF ^ (0xFF >> shift);
-            (sign | (segment << 4) | ((sample >> (segment + 3)) & 0x0F)) ^ mask
-        };
-
-        uval as u8
+        let index = (sample as i32 + 32768) as usize;
+        MULAW_ENCODE_TABLE[index]
     }
 }
 

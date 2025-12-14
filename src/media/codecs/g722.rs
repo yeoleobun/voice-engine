@@ -138,9 +138,9 @@ fn block4(band: &mut G722Band, d: i32) {
 
     // Block 4, UPPOL2 - Update second predictor coefficient
     // Extract sign bits for adaptation logic
-    for i in 0..3 {
-        band.sign_bits[i] = band.partial_reconstructed[i] >> 15;
-    }
+    band.sign_bits[0] = band.partial_reconstructed[0] >> 15;
+    band.sign_bits[1] = band.partial_reconstructed[1] >> 15;
+    band.sign_bits[2] = band.partial_reconstructed[2] >> 15;
 
     // Scale first predictor coefficient
     let a1_scaled = saturate(band.pole_coefficients[1] << 2);
@@ -214,28 +214,24 @@ fn block4(band: &mut G722Band, d: i32) {
 
     // Block 4, DELAYA - Delay updates for filter memory
     // Shift the difference signal memory
-    for i in (1..7).rev() {
-        band.difference_signal[i] = band.difference_signal[i - 1];
-    }
+    band.difference_signal.copy_within(0..6, 1);
 
     // Update filter coefficients
-    for i in 1..7 {
-        band.zero_coefficients[i] = band.zero_coefficients_temp[i];
-    }
+    band.zero_coefficients
+        .copy_from_slice(&band.zero_coefficients_temp);
 
     // Shift pole filter memory
-    for i in (1..3).rev() {
-        band.reconstructed_signal[i] = band.reconstructed_signal[i - 1];
-        band.partial_reconstructed[i] = band.partial_reconstructed[i - 1];
-        band.pole_coefficients[i] = band.pole_coefficients_temp[i];
-    }
+    band.reconstructed_signal.copy_within(0..2, 1);
+    band.partial_reconstructed.copy_within(0..2, 1);
+    band.pole_coefficients[1] = band.pole_coefficients_temp[1];
+    band.pole_coefficients[2] = band.pole_coefficients_temp[2];
 
     // Block 4, FILTEP - Pole section (IIR) filtering
     // Calculate contribution of the pole section to the signal estimate
-    let r1_adj = saturate(band.reconstructed_signal[1] + band.reconstructed_signal[1]); // Scale by 2
+    let r1_adj = saturate(band.reconstructed_signal[1] << 1); // Scale by 2
     let pole1 = (band.pole_coefficients[1] * r1_adj) >> 15;
 
-    let r2_adj = saturate(band.reconstructed_signal[2] + band.reconstructed_signal[2]); // Scale by 2
+    let r2_adj = saturate(band.reconstructed_signal[2] << 1); // Scale by 2
     let pole2 = (band.pole_coefficients[2] * r2_adj) >> 15;
 
     // Combined pole section output
@@ -245,7 +241,7 @@ fn block4(band: &mut G722Band, d: i32) {
     // Calculate contribution of the zero section to the signal estimate
     band.zero_filter_output = 0;
     for i in 1..7 {
-        let d_adj = saturate(band.difference_signal[i] + band.difference_signal[i]); // Scale by 2
+        let d_adj = saturate(band.difference_signal[i] << 1); // Scale by 2
         band.zero_filter_output += (band.zero_coefficients[i] * d_adj) >> 15;
     }
     band.zero_filter_output = saturate(band.zero_filter_output);
@@ -320,9 +316,7 @@ impl G722Encoder {
             } else {
                 // 16kHz mode - Apply QMF analysis filter to split bands
                 // Shuffle buffer down to make room for new samples
-                for i in 0..22 {
-                    self.x[i] = self.x[i + 2];
-                }
+                self.x.copy_within(2..24, 0);
 
                 // Add new samples to buffer
                 self.x[22] = amp[input_idx] as i32;
@@ -633,9 +627,7 @@ impl G722Decoder {
     /// Apply QMF synthesis filter to combine low and high band signals
     fn apply_qmf_synthesis(&mut self, rlow: i32, rhigh: i32) -> [i16; 2] {
         // Shift filter state
-        for i in 0..22 {
-            self.x[i] = self.x[i + 2];
-        }
+        self.x.copy_within(2..24, 0);
 
         // Set new filter state values
         self.x[22] = rlow + rhigh;
