@@ -284,7 +284,7 @@ impl TenFeatureExtractor {
                     let power_sub = &self.power_spectrum[start..valid_end];
 
                     // This dot product should be auto-vectorized
-                    sum = filter_sub.iter().zip(power_sub).map(|(&f, &p)| f * p).sum();
+                    sum = super::simd::dot_product(filter_sub, power_sub);
                 } else {
                     // Fallback if not contiguous (should not happen)
                     for j in start..valid_end {

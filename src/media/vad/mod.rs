@@ -8,6 +8,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use tokio_util::sync::CancellationToken;
 
+pub(crate) mod simd;
 pub(crate) mod tiny_silero;
 pub(crate) mod tiny_ten;
 pub(crate) mod utils;
