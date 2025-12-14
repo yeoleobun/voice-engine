@@ -26,6 +26,7 @@ fn dot_product_128(w: &[f32], x: &[f32]) -> f32 {
         return unsafe { super::simd::dot_product_neon(w, x) };
     }
 
+    #[allow(unreachable_code)]
     let mut sum = 0.0;
     // Unroll 8 times for better pipelining
     for k in 0..16 {
@@ -58,6 +59,7 @@ fn dot_product_256(w: &[f32], x: &[f32]) -> f32 {
         return unsafe { super::simd::dot_product_neon(w, x) };
     }
 
+    #[allow(unreachable_code)]
     let mut sum = 0.0;
     // Unroll 8 times
     for k in 0..32 {
