@@ -30,6 +30,7 @@ pub struct SipOption {
     pub username: Option<String>,
     pub password: Option<String>,
     pub realm: Option<String>,
+    pub contact: Option<String>,
     pub headers: Option<HashMap<String, String>>,
 }
 
@@ -109,6 +110,12 @@ impl CallOption {
                 h.iter()
                     .map(|(k, v)| rsip::Header::Other(k.clone(), v.clone()))
                     .collect::<Vec<_>>()
+            });
+            sip.contact.as_ref().map(|c| match c.clone().try_into() {
+                Ok(u) => {
+                    invite_option.contact = u;
+                }
+                Err(_) => {}
             });
         }
         Ok(invite_option)
