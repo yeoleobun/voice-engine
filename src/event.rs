@@ -42,17 +42,20 @@ pub enum SessionEvent {
         track_id: String,
         timestamp: u64,
         sdp: String,
+        refer: Option<bool>,
     },
     Reject {
         track_id: String,
         timestamp: u64,
         reason: String,
+        refer: Option<bool>,
         code: Option<u32>,
     },
     Ringing {
         track_id: String,
         timestamp: u64,
         early_media: bool,
+        refer: Option<bool>,
     },
     Hangup {
         track_id: String,
@@ -66,6 +69,7 @@ pub enum SessionEvent {
         from: Option<Attendee>,
         to: Option<Attendee>,
         extra: Option<HashMap<String, serde_json::Value>>,
+        refer: Option<bool>,
     },
     AnswerMachineDetection {
         // Answer machine detection
